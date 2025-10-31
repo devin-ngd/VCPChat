@@ -15,7 +15,7 @@ class RAGObserverConfig {
     loadSettings() {
         const params = new URLSearchParams(window.location.search);
         const settings = {
-            vcpLogUrl: params.get('vcpLogUrl') || 'ws://127.0.0.1:5890',
+            vcpLogUrl: params.get('vcpLogUrl') || 'ws://127.0.0.1:6005',
             vcpLogKey: params.get('vcpLogKey') || ''
         };
         this.settings = settings;
@@ -39,11 +39,11 @@ class RAGObserverConfig {
         this.isConnecting = true;
 
         const settings = this.loadSettings();
-        
+
         // Theme is now handled by the async DOMContentLoaded listener.
-        
+
         // 获取连接信息
-        const wsUrl = settings.vcpLogUrl || 'ws://127.0.0.1:5890';
+        const wsUrl = settings.vcpLogUrl || 'ws://127.0.0.1:6005';
         const vcpKey = settings.vcpLogKey || '';
 
         if (!vcpKey) {
@@ -55,7 +55,7 @@ class RAGObserverConfig {
 
         // 连接WebSocket
         const wsUrlInfo = `${wsUrl}/vcpinfo/VCP_Key=${vcpKey}`;
-        
+
         if (!isReconnect) {
             updateStatus('connecting', `连接中: ${wsUrl}`);
         } else {
@@ -63,7 +63,7 @@ class RAGObserverConfig {
         }
 
         this.wsConnection = new WebSocket(wsUrlInfo);
-        
+
         this.wsConnection.onopen = (event) => {
             console.log('WebSocket 连接已建立:', event);
             updateStatus('open', 'VCPInfo 已连接！');
@@ -141,7 +141,7 @@ window.addEventListener('DOMContentLoaded', async () => {
             console.log(`RAG Observer: Theme updated to ${theme}`);
             config.applyTheme(theme);
         });
-        
+
         // Get and apply the initial theme
         try {
             const theme = await window.electronAPI.getCurrentTheme();
