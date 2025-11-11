@@ -33,6 +33,18 @@ function updateVCPLogStatus(statusUpdate, vcpLogConnectionStatusDiv) {
  * @param {Object} themeColors - An object containing theme colors (largely unused now with CSS variables).
  */
 function renderVCPLogNotification(logData, originalRawMessage = null, notificationsListUl, themeColors = {}) {
+    // 优先处理待办提醒 - 使用弹窗显示
+    if (logData && typeof logData === 'object' && logData.type === 'TODO_REMINDER') {
+        if (typeof todoReminderManager !== 'undefined') {
+            todoReminderManager.handleTodoReminder(logData);
+            // 待办提醒已通过弹窗显示,不需要在通知列表中显示
+            return;
+        } else {
+            console.warn('待办提醒管理器未初始化,将作为普通通知显示');
+            // 继续执行下面的代码,作为普通通知显示
+        }
+    }
+
     // Suppress the generic English connection success message for VCPLog
     if (logData && typeof logData === 'object' && logData.type === 'connection_ack' && logData.message === 'WebSocket connection successful for VCPLog.') {
         return; // Do not render this notification
@@ -221,14 +233,14 @@ function renderVCPLogNotification(logData, originalRawMessage = null, notificati
 
     const closeToastNotification = (toastElement) => {
         toastElement.classList.add('exiting');
-        
+
         // 设置一个fallback timeout，确保元素一定会被移除
         const fallbackTimeout = setTimeout(() => {
             if (toastElement.parentNode) {
                 toastElement.parentNode.removeChild(toastElement);
             }
         }, 500); // 500ms后强制移除，即使transition没有完成
-        
+
         toastElement.addEventListener('transitionend', () => {
             clearTimeout(fallbackTimeout); // 如果transition正常完成，清除fallback
             if (toastElement.parentNode) {
@@ -257,7 +269,7 @@ function renderVCPLogNotification(logData, originalRawMessage = null, notificati
         populateNotificationElement(toastBubble, true);
         toastContainer.prepend(toastBubble);
         setTimeout(() => toastBubble.classList.add('visible'), 50);
-        
+
         // 增强自动消失逻辑，支持自定义停留时间
         let autoDismissDelay = 7000; // 默认7秒
 
@@ -280,7 +292,7 @@ function renderVCPLogNotification(logData, originalRawMessage = null, notificati
                 }
             }, autoDismissDelay);
         }
-        
+
         // 保存timeout ID，以便在手动关闭时清除（如果有的话）
         if (autoDismissTimeout) {
             toastBubble.dataset.autoDismissTimeout = autoDismissTimeout.toString();
@@ -325,7 +337,7 @@ function initializeFocusCleanup() {
                     toast.parentNode.removeChild(toast);
                 }
             });
-            
+
             // 清理超时的通知元素（显示超过10秒的）
             const allToasts = toastContainer.querySelectorAll('.floating-toast-notification');
             allToasts.forEach(toast => {

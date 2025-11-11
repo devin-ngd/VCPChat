@@ -1,0 +1,515 @@
+/* ========================================
+   待办提醒弹窗样式
+   ======================================== */
+
+/* 容器 */
+#todoReminderContainer {
+    position: fixed;
+    top: 80px;
+    right: 20px;
+    z-index: 10000;
+    display: flex;
+    flex-direction: column;
+    gap: 15px;
+    max-width: 420px;
+    pointer-events: none;
+}
+
+/* 弹窗基础样式 */
+.todo-reminder-popup {
+    background: var(--modal-bg, #ffffff);
+    border-radius: 12px;
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.15),
+                0 0 0 1px rgba(0, 0, 0, 0.05);
+    overflow: hidden;
+    pointer-events: auto;
+    transform: translateX(450px);
+    opacity: 0;
+    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    backdrop-filter: blur(10px);
+    max-width: 420px;
+    min-width: 360px;
+}
+
+.todo-reminder-popup.show {
+    transform: translateX(0);
+    opacity: 1;
+}
+
+/* 抖动动画 */
+@keyframes shake {
+    0%, 100% { transform: translateX(0); }
+    10%, 30%, 50%, 70%, 90% { transform: translateX(-5px); }
+    20%, 40%, 60%, 80% { transform: translateX(5px); }
+}
+
+.todo-reminder-popup.shake {
+    animation: shake 0.5s cubic-bezier(.36,.07,.19,.97) both;
+}
+
+/* 优先级边框 */
+.todo-reminder-popup.priority-high {
+    border-left: 4px solid #ff4444;
+}
+
+.todo-reminder-popup.priority-medium {
+    border-left: 4px solid #ffaa00;
+}
+
+.todo-reminder-popup.priority-normal,
+.todo-reminder-popup.priority-low {
+    border-left: 4px solid #4CAF50;
+}
+
+/* 头部 */
+.todo-reminder-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 16px 20px;
+    background: linear-gradient(135deg,
+        rgba(var(--primary-rgb, 99, 102, 241), 0.08) 0%,
+        rgba(var(--primary-rgb, 99, 102, 241), 0.03) 100%);
+    border-bottom: 1px solid var(--border-color, #e5e7eb);
+}
+
+.todo-reminder-title {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    font-weight: 600;
+    font-size: 15px;
+    color: var(--primary-text, #1f2937);
+}
+
+.priority-icon {
+    font-size: 18px;
+    line-height: 1;
+    filter: drop-shadow(0 1px 2px rgba(0,0,0,0.1));
+}
+
+.todo-reminder-close {
+    background: transparent;
+    border: none;
+    cursor: pointer;
+    padding: 4px;
+    border-radius: 6px;
+    transition: all 0.2s;
+    color: var(--text-secondary, #6b7280);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.todo-reminder-close:hover {
+    background: rgba(0, 0, 0, 0.05);
+    color: var(--primary-text, #1f2937);
+}
+
+/* 内容区 */
+.todo-reminder-body {
+    padding: 18px 20px;
+    color: var(--primary-text, #374151);
+    font-size: 14px;
+    line-height: 1.6;
+}
+
+.todo-content {
+    margin: 0 0 12px 0;
+    color: var(--primary-text, #1f2937);
+}
+
+.todo-time {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 13px;
+    color: var(--text-secondary, #6b7280);
+    margin-bottom: 10px;
+}
+
+.todo-time svg {
+    opacity: 0.7;
+}
+
+.todo-tags {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    margin-top: 12px;
+}
+
+.todo-tag {
+    display: inline-block;
+    padding: 3px 10px;
+    background: rgba(var(--primary-rgb, 99, 102, 241), 0.1);
+    color: var(--primary-color, #6366f1);
+    border-radius: 12px;
+    font-size: 12px;
+    font-weight: 500;
+}
+
+/* 每日汇总样式 */
+.summary-stats {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(70px, 1fr));
+    gap: 12px;
+    margin-bottom: 16px;
+}
+
+.stat-item {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 12px;
+    background: rgba(var(--primary-rgb, 99, 102, 241), 0.05);
+    border-radius: 8px;
+    transition: all 0.2s;
+}
+
+.stat-item:hover {
+    background: rgba(var(--primary-rgb, 99, 102, 241), 0.1);
+    transform: translateY(-2px);
+}
+
+.stat-label {
+    font-size: 11px;
+    color: var(--text-secondary, #6b7280);
+    margin-bottom: 4px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+.stat-value {
+    font-size: 24px;
+    font-weight: 700;
+    color: var(--primary-text, #1f2937);
+}
+
+.stat-value.completed {
+    color: #4CAF50;
+}
+
+.stat-value.pending {
+    color: #2196F3;
+}
+
+.stat-value.overdue {
+    color: #ff4444;
+}
+
+/* 汇总项目列表 */
+.summary-items-list {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    max-height: 200px;
+    overflow-y: auto;
+}
+
+.summary-item {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 8px 12px;
+    background: var(--hover-bg, #f9fafb);
+    border-radius: 6px;
+    transition: background 0.2s;
+}
+
+.summary-item:hover {
+    background: var(--hover-bg-active, #f3f4f6);
+}
+
+.item-priority {
+    flex-shrink: 0;
+    font-size: 14px;
+}
+
+.item-content {
+    flex: 1;
+    font-size: 13px;
+    color: var(--primary-text, #374151);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.summary-item-more {
+    text-align: center;
+    padding: 8px;
+    color: var(--text-secondary, #9ca3af);
+    font-size: 12px;
+    font-style: italic;
+}
+
+/* 逾期列表样式 */
+.overdue-items-list {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    max-height: 250px;
+    overflow-y: auto;
+}
+
+.overdue-item {
+    padding: 12px;
+    background: linear-gradient(135deg,
+        rgba(255, 68, 68, 0.05) 0%,
+        rgba(255, 68, 68, 0.02) 100%);
+    border-left: 3px solid #ff4444;
+    border-radius: 6px;
+    transition: all 0.2s;
+}
+
+.overdue-item:hover {
+    background: linear-gradient(135deg,
+        rgba(255, 68, 68, 0.08) 0%,
+        rgba(255, 68, 68, 0.03) 100%);
+    transform: translateX(2px);
+}
+
+.overdue-item-header {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    margin-bottom: 6px;
+}
+
+.overdue-item-title {
+    font-weight: 600;
+    color: var(--primary-text, #1f2937);
+    font-size: 14px;
+}
+
+.overdue-time {
+    font-size: 12px;
+    color: #ff4444;
+    font-weight: 500;
+}
+
+.overdue-item-content {
+    margin: 6px 0 0 0;
+    font-size: 13px;
+    color: var(--text-secondary, #6b7280);
+    line-height: 1.5;
+}
+
+.overdue-item-more {
+    text-align: center;
+    padding: 10px;
+    color: #ff4444;
+    font-size: 12px;
+    font-weight: 600;
+    background: rgba(255, 68, 68, 0.05);
+    border-radius: 6px;
+}
+
+/* 操作按钮区域 */
+.todo-reminder-actions {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 14px 20px;
+    background: var(--hover-bg, #f9fafb);
+    border-top: 1px solid var(--border-color, #e5e7eb);
+}
+
+.todo-agent-badge {
+    flex: 1;
+    padding: 4px 10px;
+    background: rgba(var(--primary-rgb, 99, 102, 241), 0.1);
+    color: var(--primary-color, #6366f1);
+    border-radius: 12px;
+    font-size: 11px;
+    font-weight: 600;
+    text-align: center;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.todo-action-btn {
+    padding: 6px 12px;
+    border: none;
+    border-radius: 6px;
+    font-size: 12px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.2s;
+    white-space: nowrap;
+}
+
+.todo-action-btn:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+}
+
+.todo-action-btn:active {
+    transform: translateY(0);
+}
+
+.btn-view {
+    background: var(--primary-color, #6366f1);
+    color: white;
+}
+
+.btn-view:hover {
+    background: var(--primary-hover, #4f46e5);
+}
+
+.btn-dismiss {
+    background: #e5e7eb;
+    color: #374151;
+}
+
+.btn-dismiss:hover {
+    background: #d1d5db;
+}
+
+.btn-complete {
+    background: #4CAF50;
+    color: white;
+}
+
+.btn-complete:hover {
+    background: #45a049;
+}
+
+/* 滚动条样式 */
+.summary-items-list::-webkit-scrollbar,
+.overdue-items-list::-webkit-scrollbar {
+    width: 6px;
+}
+
+.summary-items-list::-webkit-scrollbar-track,
+.overdue-items-list::-webkit-scrollbar-track {
+    background: transparent;
+}
+
+.summary-items-list::-webkit-scrollbar-thumb,
+.overdue-items-list::-webkit-scrollbar-thumb {
+    background: rgba(0, 0, 0, 0.2);
+    border-radius: 3px;
+}
+
+.summary-items-list::-webkit-scrollbar-thumb:hover,
+.overdue-items-list::-webkit-scrollbar-thumb:hover {
+    background: rgba(0, 0, 0, 0.3);
+}
+
+/* 暗色主题适配 */
+@media (prefers-color-scheme: dark) {
+    .todo-reminder-popup {
+        background: var(--modal-bg, #1f2937);
+        box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4),
+                    0 0 0 1px rgba(255, 255, 255, 0.05);
+    }
+
+    .todo-reminder-header {
+        background: linear-gradient(135deg,
+            rgba(var(--primary-rgb, 99, 102, 241), 0.15) 0%,
+            rgba(var(--primary-rgb, 99, 102, 241), 0.05) 100%);
+        border-bottom-color: rgba(255, 255, 255, 0.1);
+    }
+
+    .todo-reminder-close:hover {
+        background: rgba(255, 255, 255, 0.1);
+    }
+
+    .summary-item,
+    .todo-reminder-actions {
+        background: rgba(255, 255, 255, 0.03);
+    }
+
+    .summary-item:hover {
+        background: rgba(255, 255, 255, 0.06);
+    }
+
+    .stat-item {
+        background: rgba(var(--primary-rgb, 99, 102, 241), 0.1);
+    }
+
+    .stat-item:hover {
+        background: rgba(var(--primary-rgb, 99, 102, 241), 0.15);
+    }
+
+    .overdue-item {
+        background: linear-gradient(135deg,
+            rgba(255, 68, 68, 0.1) 0%,
+            rgba(255, 68, 68, 0.05) 100%);
+    }
+
+    .overdue-item:hover {
+        background: linear-gradient(135deg,
+            rgba(255, 68, 68, 0.15) 0%,
+            rgba(255, 68, 68, 0.08) 100%);
+    }
+
+    .btn-dismiss {
+        background: rgba(255, 255, 255, 0.1);
+        color: var(--primary-text, #f9fafb);
+    }
+
+    .btn-dismiss:hover {
+        background: rgba(255, 255, 255, 0.15);
+    }
+}
+
+/* 响应式设计 */
+@media (max-width: 768px) {
+    #todoReminderContainer {
+        right: 10px;
+        left: 10px;
+        max-width: none;
+    }
+
+    .todo-reminder-popup {
+        min-width: auto;
+    }
+
+    .summary-stats {
+        grid-template-columns: repeat(2, 1fr);
+    }
+
+    .todo-reminder-actions {
+        flex-wrap: wrap;
+    }
+
+    .todo-action-btn {
+        flex: 1;
+        min-width: 80px;
+    }
+}
+
+/* Toast 提示样式增强 */
+.toast {
+    padding: 12px 20px;
+    border-radius: 8px;
+    font-size: 14px;
+    font-weight: 500;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+    transform: translateY(20px);
+    opacity: 0;
+    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.toast.show {
+    transform: translateY(0);
+    opacity: 1;
+}
+
+.toast.toast-success {
+    background: #4CAF50;
+    color: white;
+}
+
+.toast.toast-error {
+    background: #ff4444;
+    color: white;
+}
+
+.toast.toast-info {
+    background: var(--primary-color, #6366f1);
+    color: white;
+}
