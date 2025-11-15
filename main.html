@@ -15,6 +15,7 @@
     <link rel="stylesheet" href="style.css">
     <link rel="stylesheet" href="Flowlockmodules/flowlock.css">
     <link rel="stylesheet" href="Promptmodules/prompt-modules.css">
+    <link rel="stylesheet" href="styles/todo-reminder.css">
     <link rel="stylesheet" href="vendor/katex.min.css" crossorigin="anonymous">
     <script defer src="vendor/katex.min.js" crossorigin="anonymous"></script>
     <script defer src="vendor/auto-render.min.js" crossorigin="anonymous"></script>
@@ -100,7 +101,7 @@
                     <h2>设置</h2>
                     <button id="globalSettingsBtn" class="sidebar-button global-settings-btn">全局设置</button>
                 </div>
-                
+
                 <div id="agentSettingsContainer" style="display: none;"> <!-- Initially hidden -->
                     <h3 id="agentSettingsContainerTitle">助手设置: <span id="selectedAgentNameForSettings"></span></h3>
                     <form id="agentSettingsForm">
@@ -123,7 +124,7 @@
                                     <input type="text" id="agentNameInput" name="name" required>
                                 </div>
                             </div>
-                            
+
                             <!-- 自定义样式设置 - 可折叠 -->
                             <div class="agent-style-collapsible-container collapsed">
                                 <div class="style-collapse-header" id="styleCollapseHeader">
@@ -141,7 +142,7 @@
                                             </label>
                                         </div>
                                     </div>
-                                    
+
                                     <!-- 会话中使用主题颜色开关 -->
                                     <div class="style-control-item full-width">
                                         <div class="form-group-inline" style="justify-content: space-between; align-items: center; margin-bottom: 10px;">
@@ -152,7 +153,7 @@
                                             </label>
                                         </div>
                                     </div>
-                                    
+
                                     <div class="style-control-item">
                                         <label for="agentAvatarBorderColor">头像外框颜色:</label>
                                         <div class="color-input-group">
@@ -167,7 +168,7 @@
                                             <input type="text" id="agentNameTextColorText" placeholder="#ffffff" maxlength="7">
                                         </div>
                                     </div>
-                                    
+
                                     <!-- 重置颜色按钮 -->
                                     <div class="style-control-item full-width">
                                         <button type="button" id="resetAvatarColorsBtn" class="reset-colors-btn">
@@ -180,19 +181,19 @@
                                             重置为头像默认颜色
                                         </button>
                                     </div>
-                                    
+
                                     <div class="style-control-item full-width">
                                         <label for="agentCustomCss">列表项自定义CSS:</label>
                                         <textarea id="agentCustomCss" name="customCss" placeholder="例如: border-radius: 10px; box-shadow: 0 2px 8px rgba(0,0,0,0.2);" rows="3"></textarea>
                                         <small style="color: var(--text-secondary); font-size: 0.85em;">提示：此CSS将应用于【助手】页面的Agent列表项容器</small>
                                     </div>
-                                    
+
                                     <div class="style-control-item full-width">
                                         <label for="agentCardCss">名片样式CSS:</label>
                                         <textarea id="agentCardCss" name="cardCss" placeholder="例如: border-radius: 15px; background: linear-gradient(135deg, rgba(138, 43, 226, 0.1), rgba(75, 0, 130, 0.05));" rows="3"></textarea>
                                         <small style="color: var(--text-secondary); font-size: 0.85em;">提示：此CSS将应用于【设置】页面中Agent的名片区域（头像和名称）</small>
                                     </div>
-                                    
+
                                     <div class="style-control-item full-width">
                                         <label for="agentChatCss">会话样式CSS:</label>
                                         <textarea id="agentChatCss" name="chatCss" placeholder="例如: .message-avatar { filter: drop-shadow(0 0 10px rgba(100,150,255,0.8)); } .sender-name { text-shadow: 0 0 8px currentColor; }" rows="4"></textarea>
@@ -263,7 +264,7 @@
                         </div>
 
                         <hr class="form-divider">
-                        
+
                         <!-- 语音设置可折叠容器 -->
                         <div class="agent-params-collapsible-container">
                             <div class="params-header" id="ttsToggleHeader">
@@ -433,7 +434,7 @@
             </div>
         </aside>
     </div>
- 
+
     <div class="modal" id="globalSettingsModal">
         <div class="modal-content">
             <span class="close-button" onclick="uiHelperFunctions.closeModal('globalSettingsModal')">×</span>
@@ -457,7 +458,7 @@
                             <input type="text" id="userName" name="userName" placeholder="您的用户名" required>
                         </div>
                     </div>
-                    
+
                     <!-- 用户自定义样式设置 - 可折叠 -->
                     <div class="agent-style-collapsible-container collapsed">
                         <div class="style-collapse-header" id="userStyleCollapseHeader">
@@ -479,7 +480,7 @@
                                     <input type="text" id="userNameTextColorText" placeholder="#ffffff" maxlength="7">
                                 </div>
                             </div>
-                            
+
                             <!-- 重置颜色按钮 -->
                             <div class="style-control-item full-width">
                                 <button type="button" id="resetUserAvatarColorsBtn" class="reset-colors-btn">
@@ -495,7 +496,7 @@
                         </div>
                     </div>
                 </div>
-                
+
                 <hr style="border: none; border-top: 1px solid var(--border-color); margin: 20px 0;">
                 <div>
                     <label for="vcpServerUrl">VCP 服务器 URL:</label>
@@ -595,7 +596,7 @@
                     </label>
                 </div>
                 <hr style="border: none; border-top: 1px solid var(--border-color); margin: 20px 0;">
- 
+
                  <div class="form-group-inline" style="justify-content: space-between; align-items: center; margin-bottom: 15px;">
                      <label for="enableContextSanitizer" title="开启后，在提交给AI的上下文中，较早的AI消息的HTML将被转换为Markdown以节省Token。">上下文HTML标签转MD净化器</label>
                     <label class="switch">
@@ -1007,5 +1008,10 @@
 
     <!-- User Emoticon Panel -->
     <div id="emoticonPanel" class="emoticon-panel"></div>
+
+    <!-- 待办提醒弹窗容器 -->
+    <div id="todoReminderContainer"></div>
+
+    <script src="modules/todoReminderManager.js"></script>
 </body>
 </html>
