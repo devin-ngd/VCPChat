@@ -8,6 +8,7 @@ const enhancedRenderDebounceTimers = new WeakMap(); // For debouncing prettify c
 import { avatarColorCache, getDominantAvatarColor } from './renderer/colorUtils.js';
 import { initializeImageHandler, setContentAndProcessImages } from './renderer/imageHandler.js';
 import { processAnimationsInContent, cleanupAnimationsInContent } from './renderer/animation.js';
+import * as visibilityOptimizer from './renderer/visibilityOptimizer.js';
 import { createMessageSkeleton } from './renderer/domBuilder.js';
 import * as streamManager from './renderer/streamManager.js';
 import * as emoticonUrlFixer from './renderer/emoticonUrlFixer.js';
@@ -39,27 +40,29 @@ const HTML_FENCE_CHECK_REGEX = /```\w*\n<!DOCTYPE html>/i;
 const MERMAID_CODE_REGEX = /<code.*?>\s*(flowchart|graph|mermaid)\s+([\s\S]*?)<\/code>/gi;
 const MERMAID_FENCE_REGEX = /```(mermaid|flowchart|graph)\n([\s\S]*?)```/g;
 const CODE_FENCE_REGEX = /```\w*([\s\S]*?)```/g;
-const START_END_MARKER_REGEX = /「始」([\s\S]*?)「末」/g;
 
 
 // --- Enhanced Rendering Styles (from UserScript) ---
 function injectEnhancedStyles() {
    try {
+       // 检查是否已经通过 ID 或 href 引入了该样式表
        const existingStyleElement = document.getElementById('vcp-enhanced-ui-styles');
-       if (existingStyleElement) {
-           // Style element already exists, no need to recreate
-           return;
+       if (existingStyleElement) return;
+
+       const links = document.getElementsByTagName('link');
+       for (let i = 0; i < links.length; i++) {
+           if (links[i].href && links[i].href.includes('messageRenderer.css')) {
+               return;
+           }
        }
 
-       // Create link element to load external CSS
+       // 如果没有引入，则尝试从根路径引入（仅对根目录 HTML 有效）
        const linkElement = document.createElement('link');
        linkElement.id = 'vcp-enhanced-ui-styles';
        linkElement.rel = 'stylesheet';
        linkElement.type = 'text/css';
        linkElement.href = 'styles/messageRenderer.css';
        document.head.appendChild(linkElement);
-
-       // console.log('VCPSub Enhanced UI: External styles loaded.'); // Reduced logging
    } catch (error) {
        console.error('VCPSub Enhanced UI: Failed to load external styles:', error);
    }
@@ -73,13 +76,7 @@ function injectEnhancedStyles() {
  * @returns {string} The escaped text.
  */
 function escapeHtml(text) {
-    if (typeof text !== 'string') return '';
-    return text
-        .replace(/&/g, '&')
-        .replace(/</g, '<')
-        .replace(/>/g, '>')
-        .replace(/"/g, '"')
-        .replace(/'/g, '&#039;');
+    return contentProcessor.escapeHtml(text);
 }
 
 /**
@@ -109,7 +106,11 @@ async function renderMermaidDiagrams(container) {
         if (code) {
             try {
                 // The placeholder div itself will become the mermaid container
-                placeholder.textContent = decodeURIComponent(code);
+                let decodedCode = decodeURIComponent(code);
+                // 修复 AI 常用的“智能字符”导致的 Mermaid 语法错误
+                decodedCode = decodedCode.replace(/[—–－]/g, '--');
+                
+                placeholder.textContent = decodedCode;
                 placeholder.classList.remove('mermaid-placeholder');
                 placeholder.classList.add('mermaid');
             } catch (e) {
@@ -123,16 +124,18 @@ async function renderMermaidDiagrams(container) {
     const elementsToRender = placeholders.filter(el => el.classList.contains('mermaid'));
 
     if (elementsToRender.length > 0 && typeof mermaid !== 'undefined') {
-        try {
-            // Initialize mermaid if it hasn't been already
-            mermaid.initialize({ startOnLoad: false });
-            await mermaid.run({ nodes: elementsToRender });
-        } catch (error) {
-            console.error("Error rendering Mermaid diagrams:", error);
-            elementsToRender.forEach(el => {
+        // Initialize mermaid if it hasn't been already
+        mermaid.initialize({ startOnLoad: false });
+        
+        // 逐个渲染以防止单个图表错误导致所有图表显示错误
+        for (const el of elementsToRender) {
+            try {
+                await mermaid.run({ nodes: [el] });
+            } catch (error) {
+                console.error("Error rendering Mermaid diagram:", error);
                 const originalCode = el.textContent;
-                el.innerHTML = `<div class="mermaid-error">Mermaid render error: ${error.message}</div><pre>${escapeHtml(originalCode)}</pre>`;
-            });
+                el.innerHTML = `<div class="mermaid-error">Mermaid 渲染错误: ${error.message}</div><pre>${escapeHtml(originalCode)}</pre>`;
+            }
         }
     }
 }
@@ -226,29 +229,48 @@ function transformSpecialBlocks(text) {
     // Process VCP Tool Results
     processed = processed.replace(TOOL_RESULT_REGEX, (match, rawContent) => {
         const content = rawContent.trim();
-        const lines = content.split('\n').filter(line => line.trim() !== '');
+        const lines = content.split('\n');
 
         let toolName = 'Unknown Tool';
         let status = 'Unknown Status';
         const details = [];
         let otherContent = [];
+        
+        let currentKey = null;
+        let currentValue = [];
 
         lines.forEach(line => {
-            const kvMatch = line.match(/-\s*([^:]+):\s*(.*)/);
+            const kvMatch = line.match(/^-\s*([^:]+):\s*(.*)/);
             if (kvMatch) {
-                const key = kvMatch[1].trim();
-                const value = kvMatch[2].trim();
-                if (key === '工具名称') {
-                    toolName = value;
-                } else if (key === '执行状态') {
-                    status = value;
-                } else {
-                    details.push({ key, value });
+                if (currentKey) {
+                    const val = currentValue.join('\n').trim();
+                    if (currentKey === '工具名称') {
+                        toolName = val;
+                    } else if (currentKey === '执行状态') {
+                        status = val;
+                    } else {
+                        details.push({ key: currentKey, value: val });
+                    }
                 }
-            } else {
+                currentKey = kvMatch[1].trim();
+                currentValue = [kvMatch[2].trim()];
+            } else if (currentKey) {
+                currentValue.push(line);
+            } else if (line.trim() !== '') {
                 otherContent.push(line);
             }
         });
+
+        if (currentKey) {
+            const val = currentValue.join('\n').trim();
+            if (currentKey === '工具名称') {
+                toolName = val;
+            } else if (currentKey === '执行状态') {
+                status = val;
+            } else {
+                details.push({ key: currentKey, value: val });
+            }
+        }
 
         // Add 'collapsible' class for the new functionality, default to collapsed
         let html = `<div class="vcp-tool-result-bubble collapsible">`;
@@ -264,28 +286,52 @@ function transformSpecialBlocks(text) {
 
         html += `<div class="vcp-tool-result-details">`;
         details.forEach(({ key, value }) => {
-            const urlRegex = /(https?:\/\/[^\s]+)/g;
-            let processedValue = escapeHtml(value);
-            
-            if ((key === '可访问URL' || key === '返回内容') && value.match(/\.(jpeg|jpg|png|gif)$/i)) {
-                 processedValue = `<a href="${value}" target="_blank" rel="noopener noreferrer" title="点击预览"><img src="${value}" class="vcp-tool-result-image" alt="Generated Image"></a>`;
+            const isMarkdownField = (key === '返回内容' || key === '内容' || key === 'Result' || key === '返回结果' || key === 'output');
+            const isImageUrl = typeof value === 'string' && value.match(/^https?:\/\/[^\s]+\.(jpeg|jpg|png|gif|webp)$/i);
+            let processedValue;
+
+            if (isImageUrl && (key === '可访问URL' || key === '返回内容' || key === 'url' || key === 'image')) {
+                processedValue = `<a href="${value}" target="_blank" rel="noopener noreferrer" title="点击预览"><img src="${value}" class="vcp-tool-result-image" alt="Generated Image"></a>`;
+            } else if (isMarkdownField && mainRendererReferences.markedInstance) {
+                try {
+                    // Use marked for markdown fields
+                    processedValue = mainRendererReferences.markedInstance.parse(value);
+                } catch (e) {
+                    console.error('Failed to parse markdown in tool result', e);
+                    processedValue = escapeHtml(value);
+                }
             } else {
+                const urlRegex = /(https?:\/\/[^\s]+)/g;
+                processedValue = escapeHtml(value);
                 processedValue = processedValue.replace(urlRegex, '<a href="$1" target="_blank" rel="noopener noreferrer">$1</a>');
-            }
-            
-            if (key === '返回内容') {
-                processedValue = processedValue.replace(/###(.*?)###/g, '<strong>$1</strong>');
+                
+                if (key === '返回内容') {
+                    processedValue = processedValue.replace(/###(.*?)###/g, '<strong>$1</strong>');
+                }
             }
 
             html += `<div class="vcp-tool-result-item">`;
             html += `<span class="vcp-tool-result-item-key">${escapeHtml(key)}:</span> `;
-            html += `<span class="vcp-tool-result-item-value">${processedValue}</span>`;
+            const valueTag = (isMarkdownField && !isImageUrl) ? 'div' : 'span';
+            html += `<${valueTag} class="vcp-tool-result-item-value">${processedValue}</${valueTag}>`;
             html += `</div>`;
         });
         html += `</div>`; // End of vcp-tool-result-details
 
         if (otherContent.length > 0) {
-            html += `<div class="vcp-tool-result-footer"><pre>${escapeHtml(otherContent.join('\n'))}</pre></div>`;
+            const footerText = otherContent.join('\n');
+            let processedFooter;
+            if (mainRendererReferences.markedInstance) {
+                try {
+                    processedFooter = mainRendererReferences.markedInstance.parse(footerText);
+                } catch (e) {
+                    console.error('Failed to parse markdown in tool result footer', e);
+                    processedFooter = `<pre>${escapeHtml(footerText)}</pre>`;
+                }
+            } else {
+                processedFooter = `<pre>${escapeHtml(footerText)}</pre>`;
+            }
+            html += `<div class="vcp-tool-result-footer">${processedFooter}</div>`;
         }
 
         html += `</div>`; // End of vcp-tool-result-collapsible-content
@@ -329,7 +375,17 @@ function transformSpecialBlocks(text) {
                 html += `</div>`;
             }
 
-            html += `<div class="diary-content">${escapeHtml(diaryContent)}</div>`;
+            let processedDiaryContent;
+            if (mainRendererReferences.markedInstance) {
+                try {
+                    processedDiaryContent = mainRendererReferences.markedInstance.parse(diaryContent);
+                } catch (e) {
+                    processedDiaryContent = escapeHtml(diaryContent);
+                }
+            } else {
+                processedDiaryContent = escapeHtml(diaryContent);
+            }
+            html += `<div class="diary-content">${processedDiaryContent}</div>`;
             html += `</div>`;
 
             return html;
@@ -391,7 +447,17 @@ function transformSpecialBlocks(text) {
             html += `</div>`;
         }
 
-        html += `<div class="diary-content">${escapeHtml(diaryContent)}</div>`;
+        let processedDiaryContent;
+        if (mainRendererReferences.markedInstance) {
+            try {
+                processedDiaryContent = mainRendererReferences.markedInstance.parse(diaryContent);
+            } catch (e) {
+                processedDiaryContent = escapeHtml(diaryContent);
+            }
+        } else {
+            processedDiaryContent = escapeHtml(diaryContent);
+        }
+        html += `<div class="diary-content">${processedDiaryContent}</div>`;
         html += `</div>`;
 
         return html;
@@ -445,7 +511,7 @@ function processAndInjectScopedCss(content, scopeId) {
             document.head.appendChild(styleElement);
             styleInjected = true;
             
-            console.log(`[ScopedCSS] Injected scoped styles for ID: #${scopeId}`);
+            console.debug(`[ScopedCSS] Injected scoped styles for ID: #${scopeId}`);
         } catch (error) {
             console.error(`[ScopedCSS] Failed to scope or inject CSS for ID: ${scopeId}`, error);
         }
@@ -461,59 +527,86 @@ function processAndInjectScopedCss(content, scopeId) {
  * @param {string} text The text content.
  * @returns {string} The processed text.
  */
+/**
+ * Wraps raw HTML documents in markdown code fences if they aren't already.
+ * 🟢 跳过「始」「末」标记内的 HTML，防止工具调用参数被错误封装
+ */
 function ensureHtmlFenced(text) {
     const doctypeTag = '<!DOCTYPE html>';
     const htmlCloseTag = '</html>';
     const lowerText = text.toLowerCase();
 
-    // If it's already in a proper html code block, do nothing. This is the fix.
-    // This regex now checks for any language specifier (or none) after the fences.
+    // 已在代码块中，不处理
     if (HTML_FENCE_CHECK_REGEX.test(text)) {
         return text;
     }
 
-    // Quick exit if no doctype is present.
+    // 快速检查：没有 doctype 直接返回
     if (!lowerText.includes(doctypeTag.toLowerCase())) {
         return text;
     }
 
+    // 🟢 构建「始」「末」保护区域
+    const protectedRanges = [];
+    const START_MARKER = '「始」';
+    const END_MARKER = '「末」';
+    let searchStart = 0;
+    
+    while (true) {
+        const startPos = text.indexOf(START_MARKER, searchStart);
+        if (startPos === -1) break;
+        
+        const endPos = text.indexOf(END_MARKER, startPos + START_MARKER.length);
+        if (endPos === -1) {
+            // 未闭合的「始」，保护到文本末尾（流式传输场景）
+            protectedRanges.push({ start: startPos, end: text.length });
+            break;
+        }
+        
+        protectedRanges.push({ start: startPos, end: endPos + END_MARKER.length });
+        searchStart = endPos + END_MARKER.length;
+    }
+    
+    // 🟢 检查位置是否在保护区域内
+    const isProtected = (index) => {
+        return protectedRanges.some(range => index >= range.start && index < range.end);
+    };
+
     let result = '';
     let lastIndex = 0;
+    
     while (true) {
         const startIndex = text.toLowerCase().indexOf(doctypeTag.toLowerCase(), lastIndex);
 
-        // Append the segment of text before the current HTML block.
-        const textSegment = text.substring(lastIndex, startIndex === -1 ? text.length : startIndex);
-        result += textSegment;
+        result += text.substring(lastIndex, startIndex === -1 ? text.length : startIndex);
 
-        if (startIndex === -1) {
-            break; // Exit loop if no more doctype markers are found.
-        }
+        if (startIndex === -1) break;
 
-        // Find the corresponding </html> tag.
         const endIndex = text.toLowerCase().indexOf(htmlCloseTag.toLowerCase(), startIndex + doctypeTag.length);
+        
         if (endIndex === -1) {
-            // Malformed HTML (no closing tag), append the rest of the string and stop.
             result += text.substring(startIndex);
             break;
         }
 
         const block = text.substring(startIndex, endIndex + htmlCloseTag.length);
-        
-        // Check if we are currently inside an open code block by counting fences in the processed result.
+
+        // 🔴 核心修复：如果在「始」「末」保护区内，直接添加不封装
+        if (isProtected(startIndex)) {
+            result += block;
+            lastIndex = endIndex + htmlCloseTag.length;
+            continue;
+        }
+
+        // 正常逻辑：检查是否已在代码块内
         const fencesInResult = (result.match(/```/g) || []).length;
 
         if (fencesInResult % 2 === 0) {
-            // Even number of fences means we are outside a code block.
-            // Wrap the HTML block in new fences.
             result += `\n\`\`\`html\n${block}\n\`\`\`\n`;
         } else {
-            // Odd number of fences means we are inside a code block.
-            // Append the HTML block as is.
             result += block;
         }
 
-        // Move past the current HTML block.
         lastIndex = endIndex + htmlCloseTag.length;
     }
 
@@ -590,10 +683,15 @@ function preprocessFullContent(text, settings = {}, messageRole = 'assistant', d
 
     // 🔴 关键安全修复：将「始」和「末」之间的内容视为纯文本并进行 HTML 转义
     // 这样可以防止工具调用参数中的 HTML 被执行。
-    text = text.replace(START_END_MARKER_REGEX, (match, content) => {
-        // 仅对内部内容进行转义，保留标记本身
-        return `「始」${escapeHtml(content)}「末」`;
-    });
+    // 注意：这里我们只处理不在工具请求块（<<<[TOOL_REQUEST]>>>）内的标记，
+    // 因为 transformSpecialBlocks 会处理工具块内的转义，避免双重转义。
+    // 但为了简单起见，我们先注释掉这一行，让 transformSpecialBlocks 统一处理，
+    // 或者确保 transformSpecialBlocks 能够处理未转义的原始文本。
+    // 实际上，processStartEndMarkers 在流式传输中非常重要。
+    // 我们将其移动到 transformSpecialBlocks 之后，或者只对非工具块内容应用。
+    
+    // 暂时保留，但我们需要意识到双重转义风险。
+    text = contentProcessor.processStartEndMarkers(text);
     
     // 一次性处理 Mermaid（合并两种情况）
     text = text.replace(MERMAID_CODE_REGEX, (match, lang, code) => {
@@ -661,7 +759,7 @@ function fixEmoticonUrlsInMarkdown(text) {
         if (emoticonUrlFixer && emoticonUrlFixer.fixEmoticonUrl) {
             const fixedUrl = emoticonUrlFixer.fixEmoticonUrl(url);
             if (fixedUrl !== url) {
-                console.log(`[PreprocessFix] Markdown图片: ${url} → ${fixedUrl}`);
+                console.debug(`[PreprocessFix] Markdown图片: ${url} → ${fixedUrl}`);
             }
             return `![${alt}](${fixedUrl})`;
         }
@@ -673,7 +771,7 @@ function fixEmoticonUrlsInMarkdown(text) {
         if (emoticonUrlFixer && emoticonUrlFixer.fixEmoticonUrl) {
             const fixedUrl = emoticonUrlFixer.fixEmoticonUrl(url);
             if (fixedUrl !== url) {
-                console.log(`[PreprocessFix] HTML图片: ${url} → ${fixedUrl}`);
+                console.debug(`[PreprocessFix] HTML图片: ${url} → ${fixedUrl}`);
             }
             return `<img${before}src="${fixedUrl}"${after}>`;
         }
@@ -739,6 +837,8 @@ function removeMessageById(messageId, saveHistory = false) {
         if (contentDiv) {
             cleanupAnimationsInContent(contentDiv);
         }
+        // 停止观察消息可见性
+        visibilityOptimizer.unobserveMessage(item);
         item.remove();
     }
     
@@ -772,6 +872,7 @@ function clearChat() {
             if (contentDiv) {
                 cleanupAnimationsInContent(contentDiv);
             }
+            visibilityOptimizer.unobserveMessage(item);
         });
         
         // 🟢 清理所有注入的 scoped CSS
@@ -796,6 +897,11 @@ function initializeMessageRenderer(refs) {
     // Start the emoticon fixer initialization, but don't wait for it here.
     // The await will happen inside renderMessage to ensure it's ready before rendering.
     emoticonUrlFixer.initialize(mainRendererReferences.electronAPI);
+
+    // 初始化可见性优化器
+    // 🟢 关键修复：IntersectionObserver 的 root 必须是产生滚动条的那个父容器
+    const scrollContainer = mainRendererReferences.chatMessagesDiv.closest('.chat-messages-container');
+    visibilityOptimizer.initializeVisibilityOptimizer(scrollContainer || mainRendererReferences.chatMessagesDiv);
 
     // --- Event Delegation ---
     mainRendererReferences.chatMessagesDiv.addEventListener('click', (e) => {
@@ -920,6 +1026,7 @@ function initializeMessageRenderer(refs) {
         ensureSpaceAfterTilde: contentProcessor.ensureSpaceAfterTilde,
         removeIndentationFromCodeBlockMarkers: contentProcessor.removeIndentationFromCodeBlockMarkers,
         deIndentMisinterpretedCodeBlocks: contentProcessor.deIndentMisinterpretedCodeBlocks, // 🟢 传递新函数
+        processStartEndMarkers: contentProcessor.processStartEndMarkers, // 🟢 传递安全处理函数
         ensureSeparatorBetweenImgAndCode: contentProcessor.ensureSeparatorBetweenImgAndCode,
         processAnimationsInContent: processAnimationsInContent,
         emoticonUrlFixer: emoticonUrlFixer, // 🟢 Pass emoticon fixer for live updates
@@ -1024,7 +1131,7 @@ async function renderAttachments(message, contentDiv) {
 }
 
 async function renderMessage(message, isInitialLoad = false, appendToDom = true) {
-    console.log('[MessageRenderer renderMessage] Received message:', JSON.parse(JSON.stringify(message))); // Log incoming message
+    // console.debug('[MessageRenderer renderMessage] Received message:', JSON.parse(JSON.stringify(message)));
     const { chatMessagesDiv, electronAPI, markedInstance, uiHelper } = mainRendererReferences;
     const globalSettings = mainRendererReferences.globalSettingsRef.get();
     const currentSelectedItem = mainRendererReferences.currentSelectedItemRef.get();
@@ -1115,6 +1222,8 @@ async function renderMessage(message, isInitialLoad = false, appendToDom = true)
     // 先添加到DOM
     if (appendToDom) {
         chatMessagesDiv.appendChild(messageItem);
+        // 观察新消息的可见性
+        visibilityOptimizer.observeMessage(messageItem);
     }
 
     if (message.isThinking) {
@@ -1228,7 +1337,7 @@ async function renderMessage(message, isInitialLoad = false, appendToDom = true)
     if ((message.role === 'user' || message.role === 'assistant') && avatarImg && senderNameDiv) {
         const applyColorToElements = (colorStr) => {
             if (colorStr) {
-                console.log(`[DEBUG] Applying color ${colorStr} to message item ${messageItem.dataset.messageId}`);
+                console.debug(`[DEBUG] Applying color ${colorStr} to message item ${messageItem.dataset.messageId}`);
                 messageItem.style.setProperty('--dynamic-avatar-color', colorStr);
                 
                 // 后备方案：直接应用到avatarImg
@@ -1243,14 +1352,14 @@ async function renderMessage(message, isInitialLoad = false, appendToDom = true)
                     senderNameDiv.style.color = colorStr;
                 }
             } else {
-                console.log(`[DEBUG] No color to apply, using default`);
+                console.debug(`[DEBUG] No color to apply, using default`);
                 messageItem.style.removeProperty('--dynamic-avatar-color');
             }
         };
 
         // 如果启用了主题颜色模式，不应用任何自定义颜色，让CSS主题接管
         if (useThemeColors) {
-            console.log(`[DEBUG] Using theme colors for message ${messageItem.dataset.messageId}`);
+            console.debug(`[DEBUG] Using theme colors for message ${messageItem.dataset.messageId}`);
             messageItem.style.removeProperty('--dynamic-avatar-color');
             if (avatarImg) {
                 avatarImg.style.removeProperty('border-color');
@@ -1260,7 +1369,7 @@ async function renderMessage(message, isInitialLoad = false, appendToDom = true)
             }
         } else if (customBorderColor && avatarImg) {
             // 优先应用自定义颜色（如果启用且未启用主题颜色）
-            console.log(`[DEBUG] Applying custom border color ${customBorderColor} to avatar`);
+            console.debug(`[DEBUG] Applying custom border color ${customBorderColor} to avatar`);
             avatarImg.style.borderColor = customBorderColor;
             avatarImg.style.borderWidth = '2px';
             avatarImg.style.borderStyle = 'solid';
@@ -1322,7 +1431,7 @@ async function renderMessage(message, isInitialLoad = false, appendToDom = true)
         
         // 应用自定义名称文字颜色
         if (customNameColor && senderNameDiv) {
-            console.log(`[DEBUG] Applying custom name color ${customNameColor} to sender name`);
+            console.debug(`[DEBUG] Applying custom name color ${customNameColor} to sender name`);
             senderNameDiv.style.color = customNameColor;
         }
         
@@ -1342,7 +1451,7 @@ async function renderMessage(message, isInitialLoad = false, appendToDom = true)
             
             // 通过动态注入<style>标签应用会话CSS
             if (chatCss && chatCss.trim()) {
-                console.log(`[DEBUG] Applying chat CSS to message ${message.id}:`, chatCss);
+                console.debug(`[DEBUG] Applying chat CSS to message ${message.id}:`, chatCss);
                 
                 // 为此消息创建唯一的scope ID
                 const chatScopeId = `vcp-chat-${message.id}`;
@@ -1452,7 +1561,7 @@ async function finalizeStreamedMessage(messageId, finishReason, context) {
  * @param {string} agentId - The ID of the agent sending the message.
  */
 async function renderFullMessage(messageId, fullContent, agentName, agentId) {
-    console.log(`[MessageRenderer renderFullMessage] Rendering full message for ID: ${messageId}`);
+    console.debug(`[MessageRenderer renderFullMessage] Rendering full message for ID: ${messageId}`);
     const { chatMessagesDiv, electronAPI, uiHelper, markedInstance } = mainRendererReferences;
     const currentChatHistoryArray = mainRendererReferences.currentChatHistoryRef.get();
     const currentSelectedItem = mainRendererReferences.currentSelectedItemRef.get();
@@ -1486,7 +1595,7 @@ async function renderFullMessage(messageId, fullContent, agentName, agentId) {
 
     const messageItem = chatMessagesDiv.querySelector(`.message-item[data-message-id="${messageId}"]`);
     if (!messageItem) {
-        console.log(`[renderFullMessage] No DOM element for ${messageId}. History updated, UI skipped.`);
+        console.debug(`[renderFullMessage] No DOM element for ${messageId}. History updated, UI skipped.`);
         return; // No UI to update, but history is now consistent.
     }
 
@@ -1625,7 +1734,7 @@ async function renderHistory(history, options = {}) {
         return renderHistoryLegacy(history);
     }
 
-    console.log(`[MessageRenderer] 开始分批渲染 ${history.length} 条消息，首批 ${initialBatch} 条，后续每批 ${batchSize} 条`);
+    console.debug(`[MessageRenderer] 开始分批渲染 ${history.length} 条消息，首批 ${initialBatch} 条，后续每批 ${batchSize} 条`);
 
     // 分离最新的消息和历史消息
     const latestMessages = history.slice(-initialBatch);
@@ -1633,7 +1742,7 @@ async function renderHistory(history, options = {}) {
 
     // 第一阶段：立即渲染最新的消息
     await renderMessageBatch(latestMessages, true);
-    console.log(`[MessageRenderer] 首批 ${latestMessages.length} 条最新消息已渲染`);
+    console.debug(`[MessageRenderer] 首批 ${latestMessages.length} 条最新消息已渲染`);
 
     // 第二阶段：分批渲染历史消息（从旧到新）
     if (olderMessages.length > 0) {
@@ -1642,7 +1751,7 @@ async function renderHistory(history, options = {}) {
 
     // 最终滚动到底部
     mainRendererReferences.uiHelper.scrollToBottom();
-    console.log(`[MessageRenderer] 所有 ${history.length} 条消息渲染完成`);
+    console.debug(`[MessageRenderer] 所有 ${history.length} 条消息渲染完成`);
 }
 
 /**
@@ -1679,6 +1788,9 @@ async function renderMessageBatch(messages, scrollToBottom = false) {
             
             // Step 2: Now that they are in the DOM, run the deferred processing for each.
             messageElements.forEach(el => {
+                // 观察批量渲染的消息
+                visibilityOptimizer.observeMessage(el);
+                
                 if (typeof el._vcp_process === 'function') {
                     el._vcp_process();
                     delete el._vcp_process; // Clean up to avoid memory leaks
@@ -1738,6 +1850,9 @@ async function renderOlderMessagesInBatches(olderMessages, batchSize, batchDelay
                 }
 
                 elementsForProcessing.forEach(el => {
+                    // 观察批量渲染的历史消息
+                    visibilityOptimizer.observeMessage(el);
+
                     if (typeof el._vcp_process === 'function') {
                         el._vcp_process();
                         delete el._vcp_process;
@@ -1789,6 +1904,9 @@ async function renderHistoryLegacy(history) {
 
             // Step 2: Run the deferred processing for each element now that it's attached.
             allMessageElements.forEach(el => {
+                // 观察历史消息
+                visibilityOptimizer.observeMessage(el);
+
                 if (typeof el._vcp_process === 'function') {
                     el._vcp_process();
                     delete el._vcp_process; // Clean up

@@ -87,6 +87,7 @@
     white-space: pre-wrap !important; /* Restore: Allow wrapping but preserve whitespace */
     word-break: break-all !important; /* Restore: Break long strings */
     transition: all 0.4s ease-in-out; /* Add transition for smooth hover effect */
+    will-change: transform; /* 优化：工具气泡通常包含动画，提升为独立层 */
 }
 
 /* Animated Border for VCP ToolUse */
@@ -231,6 +232,15 @@
     font-size: 1em !important;
     white-space: normal !important; /* Allow text to wrap naturally */
     word-break: break-word !important;
+    will-change: transform; /* 优化：日记气泡提升为独立层 */
+}
+
+/* Remove extra spacing in diary content caused by markdown paragraphs */
+.diary-content > p:first-child {
+    margin-top: 0;
+}
+.diary-content > p:last-child {
+    margin-bottom: 0;
 }
 
 /* The decorative icon on the top left, changed to a quill */
@@ -299,7 +309,7 @@
 .diary-content {
     font-size: 0.95em;
     color: #4e342e; /* A dark, rich brown for readability */
-    white-space: pre-wrap;
+    white-space: normal; /* Changed from pre-wrap to normal to avoid extra line breaks from MD */
     word-break: break-word;
 }
 
@@ -637,6 +647,7 @@ body.light-theme {
     width: fit-content;
     max-width: 95%;
     transition: background 0.3s, color 0.3s, border-color 0.3s, box-shadow 0.3s; /* Add transition for smooth theme change */
+    will-change: transform; /* 优化：结果气泡提升为独立层 */
 }
 
 .vcp-tool-result-bubble::before {
@@ -757,7 +768,42 @@ body.light-theme .vcp-tool-result-status:containing("SUCCESS") {
 
 .vcp-tool-result-item-value {
     color: var(--tool-result-item-value-color);
-    word-break: break-all;
+    word-break: break-word;
+}
+
+/* Markdown support inside tool result bubble */
+.vcp-tool-result-item-value > p:first-child,
+.vcp-tool-result-footer > p:first-child {
+    margin-top: 0;
+}
+.vcp-tool-result-item-value > p:last-child,
+.vcp-tool-result-footer > p:last-child {
+    margin-bottom: 0;
+}
+
+.vcp-tool-result-bubble table {
+    margin: 0.5em 0;
+    border-color: var(--tool-result-border-color);
+    background-color: rgba(0, 0, 0, 0.05);
+    width: 100%;
+}
+
+body:not(.light-theme) .vcp-tool-result-bubble table {
+    background-color: rgba(255, 255, 255, 0.05);
+}
+
+.vcp-tool-result-bubble th,
+.vcp-tool-result-bubble td {
+    border-color: var(--tool-result-border-color);
+    padding: 6px 10px;
+}
+
+.vcp-tool-result-bubble th {
+    background-color: rgba(0, 0, 0, 0.1);
+}
+
+body:not(.light-theme) .vcp-tool-result-bubble th {
+    background-color: rgba(255, 255, 255, 0.1);
 }
 
 .vcp-tool-result-item-value a {
@@ -805,13 +851,29 @@ body.light-theme .vcp-tool-result-status:containing("SUCCESS") {
 .vcp-tool-result-collapsible-content {
     max-height: 0;
     opacity: 0;
-    overflow: hidden;
+    overflow-x: hidden;
+    overflow-y: auto; /* Enable vertical scrolling */
     transition: max-height 0.5s ease-in-out, opacity 0.4s ease-in-out, margin-top 0.5s ease-in-out;
     margin-top: 0;
+    scrollbar-width: thin; /* Firefox */
+    scrollbar-color: var(--tool-result-item-key-color) transparent;
+}
+
+/* Custom scrollbar for Webkit */
+.vcp-tool-result-collapsible-content::-webkit-scrollbar {
+    width: 4px;
+}
+.vcp-tool-result-collapsible-content::-webkit-scrollbar-track {
+    background: transparent;
+}
+.vcp-tool-result-collapsible-content::-webkit-scrollbar-thumb {
+    background-color: var(--tool-result-item-key-color);
+    border-radius: 10px;
+    opacity: 0.5;
 }
 
 .vcp-tool-result-bubble.expanded .vcp-tool-result-collapsible-content {
-    max-height: 1000px; /* Adjust as needed, should be large enough for content */
+    max-height: 500px; /* Set a reasonable max height for scrolling */
     opacity: 1;
     margin-top: 10px; /* Add space when expanded */
 }
@@ -941,16 +1003,10 @@ body:not(.light-theme) .mermaid-error {
 
 
 /* --- Stream Fade-in Animation --- */
-/* 新节点的滑入动画（保持原样） */
-.vcp-stream-element-fade-in {
-    animation: vcp-stream-fade-in 0.4s cubic-bezier(0.4, 0, 0.2, 1);
-}
-
-/* 新增：内容增长的脉冲动画 */
-.vcp-stream-content-pulse {
-    animation: vcp-content-pulse 0.3s ease-out;
-}
-
+/*
+ * 统一 AI 内容块流式渐入动画
+ * 使用 translateX(20px) 实现你记忆中的横向滑入感
+ */
 @keyframes vcp-stream-fade-in {
     from {
         opacity: 0;
@@ -967,17 +1023,20 @@ body:not(.light-theme) .mermaid-error {
         background-color: transparent;
     }
     50% {
-        background-color: rgba(59, 130, 246, 0.08); /* 轻微的蓝色高亮 */
+        background-color: rgba(59, 130, 246, 0.08);
     }
     100% {
         background-color: transparent;
     }
 }
 
-
-/* Class to apply the animation to newly added stream elements */
 .vcp-stream-element-fade-in {
-  animation: vcp-stream-fade-in 0.5s ease-out forwards;
+    animation: vcp-stream-fade-in 0.5s cubic-bezier(0.25, 0.46, 0.45, 0.94) forwards !important;
+    will-change: opacity, transform;
+}
+
+.vcp-stream-content-pulse {
+    animation: vcp-content-pulse 0.3s ease-out;
 }
 
 

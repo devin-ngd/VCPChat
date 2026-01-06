@@ -201,6 +201,11 @@ function applyStreamingPreprocessors(text) {
         processedText = refs.deIndentMisinterpretedCodeBlocks(processedText);
     }
     
+    // 🔴 关键安全修复：在流式传输中也转义「始」和「末」之间的内容
+    if (refs.processStartEndMarkers) {
+        processedText = refs.processStartEndMarkers(processedText);
+    }
+    
     return processedText
         .replace(SPEAKER_TAG_REGEX, '')
         .replace(NEWLINE_AFTER_CODE_REGEX, '$1\n')
@@ -307,17 +312,27 @@ function renderStreamFrame(messageId) {
     const rawHtml = refs.markedInstance.parse(processedText);
 
     if (refs.morphdom) {
-        refs.morphdom(contentDiv, `<div>${rawHtml}</div>`, {
-            childrenOnly: true,
-            
-            onBeforeElUpdated: function(fromEl, toEl) {
+        try {
+            refs.morphdom(contentDiv, `<div>${rawHtml}</div>`, {
+                childrenOnly: true,
+                
+                onBeforeElUpdated: function(fromEl, toEl) {
                 // 跳过相同节点
                 if (fromEl.isEqualNode(toEl)) {
                     return false;
                 }
                 
+                // 🟢 关键修复：保留正在进行的动画类，防止 morphdom 在下一帧将其移除
+                // 因为 toEl 是从 marked 重新生成的，不包含这些动态添加的动画类
+                if (fromEl.classList.contains('vcp-stream-element-fade-in')) {
+                    toEl.classList.add('vcp-stream-element-fade-in');
+                }
+                if (fromEl.classList.contains('vcp-stream-content-pulse')) {
+                    toEl.classList.add('vcp-stream-content-pulse');
+                }
+
                 // 🟢 检测块级元素的显著内容增长
-                if (/^(P|DIV|UL|OL|PRE|BLOCKQUOTE|H[1-6])$/.test(fromEl.tagName)) {
+                if (/^(P|DIV|UL|OL|LI|PRE|BLOCKQUOTE|H[1-6]|TABLE|TR|FIGURE)$/.test(fromEl.tagName)) {
                     const oldLength = elementContentLengthCache.get(fromEl) || fromEl.textContent.length;
                     const newLength = toEl.textContent.length;
                     const lengthDiff = newLength - oldLength;
@@ -395,22 +410,30 @@ function renderStreamFrame(messageId) {
             },
             
             onNodeAdded: function(node) {
-                // Animate block-level elements as they are added to the DOM
-                if (node.nodeType === 1 && /^(P|DIV|UL|OL|PRE|BLOCKQUOTE|H[1-6]|TABLE|FIGURE)$/.test(node.tagName)) {
-                    // 新节点使用滑入动画
+                // 增强：包含更多常见的块级元素，确保列表、表格等都能触发横向渐入
+                if (node.nodeType === 1 && /^(P|DIV|UL|OL|LI|PRE|BLOCKQUOTE|H[1-6]|TABLE|TR|FIGURE)$/.test(node.tagName)) {
+                    // 确保新节点应用横向渐入类
                     node.classList.add('vcp-stream-element-fade-in');
                     
-                    // 初始化长度缓存
+                    // 初始化长度缓存用于后续的脉冲检测
                     elementContentLengthCache.set(node, node.textContent.length);
                     
-                    // Clean up the class after the animation completes to prevent re-triggering
-                    node.addEventListener('animationend', () => {
-                        node.classList.remove('vcp-stream-element-fade-in');
-                    }, { once: true });
+                    // 动画结束后清理类名，但保留一小段时间确保渲染稳定
+                    setTimeout(() => {
+                        if (node && node.classList) {
+                            node.classList.remove('vcp-stream-element-fade-in');
+                        }
+                    }, 1000);
                 }
                 return node;
             }
         });
+        } catch (error) {
+            // 🟢 捕获不完整 HTML 导致的 morphdom 异常
+            // 在流式输出过程中，这是预期内的行为，静默忽略即可
+            // 等待下一个 chunk 到达后，内容变得完整，渲染会自动恢复正常
+            console.debug('[StreamManager] morphdom skipped frame due to incomplete HTML, waiting for more chunks...');
+        }
     } else {
         contentDiv.innerHTML = rawHtml;
     }
@@ -598,7 +621,7 @@ export async function startStreamingMessage(message, passedMessageItem = null) {
     // Process any chunks that were pre-buffered during initialization.
     const bufferedChunks = preBufferedChunks.get(messageId);
     if (bufferedChunks && bufferedChunks.length > 0) {
-        console.log(`[StreamManager] Processing ${bufferedChunks.length} pre-buffered chunks for message ${messageId}`);
+        console.debug(`[StreamManager] Processing ${bufferedChunks.length} pre-buffered chunks for message ${messageId}`);
         for (const chunkData of bufferedChunks) {
             appendStreamChunk(messageId, chunkData.chunk, chunkData.context);
         }
@@ -712,7 +735,7 @@ export function appendStreamChunk(messageId, chunkData, context) {
         if (!preBufferedChunks.has(messageId)) {
             preBufferedChunks.set(messageId, []);
             // 只在第一次创建缓冲区时打印日志
-            console.log(`[StreamManager] Started pre-buffering for message ${messageId}`);
+            console.debug(`[StreamManager] Started pre-buffering for message ${messageId}`);
         }
         const buffer = preBufferedChunks.get(messageId);
         buffer.push({ chunk: chunkData, context });
