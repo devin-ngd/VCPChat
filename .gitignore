@@ -8,6 +8,7 @@ AppData/
 node_modules/
 
 .env
+!audio_engine/.env
 
 /public/assets
 
@@ -16,3 +17,5 @@ node_modules/
 bin/
 
 assets/wallpaper/
+# Rust build artifacts
+rust_audio_engine/target/
