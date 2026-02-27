@@ -18,4 +18,8 @@ bin/
 
 assets/wallpaper/
 # Rust build artifacts
-rust_audio_engine/target/
+**/target/
+**/Cargo.lock
+
+# Reports and logs
+**/reports/
