@@ -32,3 +32,7 @@ package.json
 styles/themes.css
 assets/wallpaper/
 bin/
+
+# LibreHardwareMonitor 官方二进制由开发者本地自行准备，不进入仓库
+vendor/LibreHardwareMonitor/*
+!vendor/LibreHardwareMonitor/README.md

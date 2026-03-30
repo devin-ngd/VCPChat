@@ -157,6 +157,86 @@
             });
         }
 
+        // 远程 Dock 应用列表查询
+        if (window.electronAPI?.onDesktopRemoteQueryDock) {
+            window.electronAPI.onDesktopRemoteQueryDock(() => {
+                console.log('[Desktop IPC] Received remote dock query');
+                try {
+                    // 收集 Dock 中的用户快捷方式列表
+                    const dockItems = [];
+                    if (state.dock && state.dock.items) {
+                        for (const item of state.dock.items) {
+                            const info = {
+                                name: item.name,
+                                type: item.type || 'shortcut',
+                                visible: item.visible !== false,
+                            };
+                            if (item.type === 'vchat-app') {
+                                info.appAction = item.appAction || '';
+                            } else if (item.type === 'builtin') {
+                                info.builtinId = item.builtinId || '';
+                            } else {
+                                info.targetPath = item.targetPath || '';
+                            }
+                            dockItems.push(info);
+                        }
+                    }
+
+                    // 收集 VChat 内部应用列表（硬编码，始终可用）
+                    const vchatApps = [];
+                    if (window.VCPDesktop.vchatApps && window.VCPDesktop.vchatApps.VCHAT_APPS) {
+                        for (const app of window.VCPDesktop.vchatApps.VCHAT_APPS) {
+                            vchatApps.push({
+                                name: app.name,
+                                emoji: app.emoji || '',
+                                appAction: app.appAction,
+                            });
+                        }
+                    }
+
+                    // 收集系统工具列表
+                    const systemTools = [];
+                    if (window.VCPDesktop.vchatApps && window.VCPDesktop.vchatApps.SYSTEM_TOOLS) {
+                        for (const tool of window.VCPDesktop.vchatApps.SYSTEM_TOOLS) {
+                            systemTools.push({
+                                name: tool.name,
+                                emoji: tool.emoji || '',
+                                appAction: tool.appAction,
+                            });
+                        }
+                    }
+
+                    // 收集内置挂件列表
+                    const builtinWidgets = [
+                        { name: '天气挂件', builtinId: 'builtinWeather' },
+                        { name: '音乐播放条', builtinId: 'builtinMusic' },
+                        { name: '应用托盘', builtinId: 'builtinAppTray' },
+                    ];
+
+                    // 发送响应
+                    if (window.electronAPI?.sendDesktopRemoteQueryDockResponse) {
+                        window.electronAPI.sendDesktopRemoteQueryDockResponse({
+                            success: true,
+                            dockItems,
+                            vchatApps,
+                            systemTools,
+                            builtinWidgets,
+                        });
+                    }
+
+                    console.log(`[Desktop IPC] Dock query response: ${dockItems.length} dock items, ${vchatApps.length} vchat apps, ${systemTools.length} system tools`);
+                } catch (err) {
+                    console.error('[Desktop IPC] Dock query error:', err);
+                    if (window.electronAPI?.sendDesktopRemoteQueryDockResponse) {
+                        window.electronAPI.sendDesktopRemoteQueryDockResponse({
+                            success: false,
+                            error: err.message,
+                        });
+                    }
+                }
+            });
+        }
+
         // 远程查看挂件源码
         if (window.electronAPI?.onDesktopRemoteViewSource) {
             window.electronAPI.onDesktopRemoteViewSource((data) => {
@@ -168,6 +248,7 @@
                         if (window.electronAPI?.sendDesktopRemoteViewSourceResponse) {
                             window.electronAPI.sendDesktopRemoteViewSourceResponse({
                                 success: false,
+                                widgetId,
                                 error: `挂件 '${widgetId}' 不存在于当前桌面上。可用的挂件ID: ${[...state.widgets.keys()].join(', ') || '(无)'}`,
                             });
                         }
@@ -181,6 +262,7 @@
                     if (window.electronAPI?.sendDesktopRemoteViewSourceResponse) {
                         window.electronAPI.sendDesktopRemoteViewSourceResponse({
                             success: true,
+                            widgetId,
                             html: htmlSource,
                             savedName: widgetData.savedName || null,
                             savedId: widgetData.savedId || null,
@@ -203,9 +285,71 @@
         // 远程创建挂件
         if (window.electronAPI?.onDesktopRemoteCreateWidget) {
             window.electronAPI.onDesktopRemoteCreateWidget((data) => {
-                const { widgetId, htmlContent, options, autoSave, saveName, preSavedId } = data;
-                console.log(`[Desktop IPC] Received remote create widget: ${widgetId}`, options, preSavedId ? `(pre-saved: ${preSavedId})` : '');
+                const {
+                    widgetId,
+                    htmlContent,
+                    options = {},
+                    autoSave,
+                    saveName,
+                    preSavedId,
+                    builtinWidgetKey,
+                    metricComponent,
+                } = data || {};
+                console.log(
+                    `[Desktop IPC] Received remote create widget: ${widgetId || builtinWidgetKey || metricComponent}`,
+                    options,
+                    preSavedId ? `(pre-saved: ${preSavedId})` : ''
+                );
                 try {
+                    const builtinKey = builtinWidgetKey || metricComponent;
+                    if (builtinKey && window.VCPDesktop.metricWidgets?.spawn) {
+                        const spawnResult = window.VCPDesktop.metricWidgets.spawn(builtinKey, {
+                            ...options,
+                            widgetId,
+                        });
+                        const createdWidgetId = spawnResult?.widgetId || widgetId;
+                        const builtinWidgetData = state.widgets.get(createdWidgetId);
+
+                        status.update('connected', `AI创建了内置监控挂件: ${builtinKey}`);
+                        status.show();
+                        setTimeout(() => status.hide(), 3000);
+
+                        if (autoSave && saveName && builtinWidgetData) {
+                            _autoSaveWidget(createdWidgetId, saveName, builtinWidgetData).then((savedResult) => {
+                                if (window.electronAPI?.sendDesktopRemoteCreateWidgetResponse) {
+                                    window.electronAPI.sendDesktopRemoteCreateWidgetResponse({
+                                        success: true,
+                                        widgetId: createdWidgetId,
+                                        savedId: savedResult?.id || null,
+                                        savedName: savedResult?.name || null,
+                                        builtinWidgetKey: builtinKey,
+                                    });
+                                }
+                            }).catch(() => {
+                                if (window.electronAPI?.sendDesktopRemoteCreateWidgetResponse) {
+                                    window.electronAPI.sendDesktopRemoteCreateWidgetResponse({
+                                        success: true,
+                                        widgetId: createdWidgetId,
+                                        savedId: null,
+                                        savedName: null,
+                                        builtinWidgetKey: builtinKey,
+                                    });
+                                }
+                            });
+                        } else if (window.electronAPI?.sendDesktopRemoteCreateWidgetResponse) {
+                            window.electronAPI.sendDesktopRemoteCreateWidgetResponse({
+                                success: true,
+                                widgetId: createdWidgetId,
+                                builtinWidgetKey: builtinKey,
+                            });
+                        }
+                        return;
+                    }
+
+                    if (!widgetId || !htmlContent) {
+                        throw new Error('远程创建自定义挂件缺少 widgetId 或 htmlContent');
+                    }
+
                     // 使用 widgetManager 创建挂件
                     const widgetData = widget.create(widgetId, {
                         x: options.x || 100,
@@ -292,9 +436,56 @@
                     if (window.electronAPI?.sendDesktopRemoteCreateWidgetResponse) {
                         window.electronAPI.sendDesktopRemoteCreateWidgetResponse({
                             success: false,
+                            widgetId,
                             error: err.message,
                         });
                     }
+                }
+            });
+        }
+
+        // 远程样式自动化控制（SetStyleAutomation / GetStyleAutomationStatus）
+        if (window.electronAPI?.onDesktopRemoteStyleAutomation) {
+            window.electronAPI.onDesktopRemoteStyleAutomation(async (data) => {
+                const action = data?.action || 'status';
+                const persist = !!data?.persist;
+                const configPatch = data?.configPatch;
+                try {
+                    if (!window.VCPDesktop?.styleAutomation) {
+                        throw new Error('styleAutomation 模块不可用');
+                    }
+
+                    if (action === 'set') {
+                        if (!configPatch || typeof configPatch !== 'object') {
+                            throw new Error('configPatch 必须为对象');
+                        }
+                        const statusResult = await window.VCPDesktop.styleAutomation.setConfigPatch(configPatch, { persist });
+                        window.electronAPI?.sendDesktopRemoteStyleAutomationResponse?.({
+                            success: true,
+                            action,
+                            status: statusResult,
+                        });
+                        return;
+                    }
+
+                    if (action === 'status') {
+                        const statusResult = window.VCPDesktop.styleAutomation.getStatus();
+                        window.electronAPI?.sendDesktopRemoteStyleAutomationResponse?.({
+                            success: true,
+                            action,
+                            status: statusResult,
+                        });
+                        return;
+                    }
+
+                    throw new Error(`未知 action: ${action}`);
+                } catch (err) {
+                    console.error('[Desktop IPC] Style automation error:', err);
+                    window.electronAPI?.sendDesktopRemoteStyleAutomationResponse?.({
+                        success: false,
+                        action,
+                        error: err?.message || String(err),
+                    });
                 }
             });
         }

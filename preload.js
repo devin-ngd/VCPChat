@@ -84,7 +84,9 @@ contextBridge.exposeInMainWorld('electron', {
             'music-configure-resampling',
             // --- Settings Persistence ---
             'music-get-settings',
-            'music-save-settings'
+            'music-save-settings',
+            // --- Pending Track for AI song request ---
+            'music-get-pending-track'
         ];
         if (validChannels.includes(channel)) {
             return ipcRenderer.invoke(channel, data);
@@ -437,10 +439,14 @@ contextBridge.exposeInMainWorld('electronAPI', {
     onDesktopRemoteSetWallpaper: (callback) => ipcRenderer.on('desktop-remote-set-wallpaper', (_event, data) => callback(data)),
     onDesktopRemoteQuery: (callback) => ipcRenderer.on('desktop-remote-query', (_event) => callback()),
     sendDesktopRemoteQueryResponse: (data) => ipcRenderer.send('desktop-remote-query-response', data),
+    onDesktopRemoteQueryDock: (callback) => ipcRenderer.on('desktop-remote-query-dock', (_event) => callback()),
+    sendDesktopRemoteQueryDockResponse: (data) => ipcRenderer.send('desktop-remote-query-dock-response', data),
     onDesktopRemoteViewSource: (callback) => ipcRenderer.on('desktop-remote-view-source', (_event, data) => callback(data)),
     sendDesktopRemoteViewSourceResponse: (data) => ipcRenderer.send('desktop-remote-view-source-response', data),
     onDesktopRemoteCreateWidget: (callback) => ipcRenderer.on('desktop-remote-create-widget', (_event, data) => callback(data)),
     sendDesktopRemoteCreateWidgetResponse: (data) => ipcRenderer.send('desktop-remote-create-widget-response', data),
+    onDesktopRemoteStyleAutomation: (callback) => ipcRenderer.on('desktop-remote-style-automation', (_event, data) => callback(data)),
+    sendDesktopRemoteStyleAutomationResponse: (data) => ipcRenderer.send('desktop-remote-style-automation-response', data),
 
     // VCPdesktop - 收藏系统 IPC 通道
     desktopSaveWidget: (data) => ipcRenderer.invoke('desktop-save-widget', data),
@@ -483,6 +489,10 @@ contextBridge.exposeInMainWorld('electronAPI', {
 
     // VCPdesktop - 窗口置底控制
     setAlwaysOnBottom: (enabled) => ipcRenderer.invoke('desktop-set-always-on-bottom', enabled),
+
+    // VCPdesktop - 系统指标 IPC 通道
+    desktopMetricsGetSnapshot: (options) => ipcRenderer.invoke('desktop-metrics-get-snapshot', options || {}),
+    desktopMetricsGetCapabilities: () => ipcRenderer.invoke('desktop-metrics-get-capabilities'),
 
     // VCPdesktop - 打开 Windows 系统工具
     desktopOpenSystemTool: (cmd) => ipcRenderer.invoke('desktop-open-system-tool', cmd),
