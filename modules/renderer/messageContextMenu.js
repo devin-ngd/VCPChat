@@ -102,64 +102,8 @@ function showContextMenu(event, messageItem, message) {
                             contextMenuDependencies.finalizeStreamedMessage(activeMessageId, 'cancelled_by_user');
                         }
                         
-                        // --- Flowlock: 中止失败后恢复心流锁自动续写 ---
-                        if (window.flowlockManager) {
-                            const flowlockState = window.flowlockManager.getState();
-                            console.log('[Flowlock] Interrupt failed, checking if flowlock should recover. State:', flowlockState);
-                            
-                            // 重置processing状态
-                            if (window.flowlockManager.isProcessing) {
-                                console.log('[Flowlock] Resetting isProcessing state after interrupt failure');
-                                window.flowlockManager.isProcessing = false;
-                            }
-                            
-                            // 如果心流锁激活，触发下一次续写
-                            if (flowlockState.isActive) {
-                                console.log('[Flowlock] Flowlock active after interrupt failure, will trigger next continue writing');
-                                
-                                setTimeout(() => {
-                                    if (window.flowlockManager && window.flowlockManager.getState().isActive) {
-                                        console.log('[Flowlock] Triggering continue writing after interrupt failure recovery...');
-                                        
-                                        // 触发心跳动画
-                                        const chatNameElement = document.getElementById('currentChatAgentName');
-                                        if (chatNameElement) {
-                                            chatNameElement.classList.add('flowlock-heartbeat');
-                                            setTimeout(() => {
-                                                chatNameElement.classList.remove('flowlock-heartbeat');
-                                            }, 800);
-                                        }
-                                        
-                                        // 获取输入框内容作为提示词
-                                        const messageInput = document.getElementById('messageInput');
-                                        const customPrompt = messageInput ? messageInput.value.trim() : '';
-                                        console.log('[Flowlock] Using custom prompt from input:', customPrompt || '(empty, will use default)');
-                                        
-                                        // 触发续写
-                                        if (window.handleContinueWriting) {
-                                            window.flowlockManager.isProcessing = true;
-                                            window.handleContinueWriting(customPrompt).then(() => {
-                                                console.log('[Flowlock] Continue writing completed after interrupt failure recovery');
-                                                window.flowlockManager.isProcessing = false;
-                                                window.flowlockManager.retryCount = 0;
-                                            }).catch((error) => {
-                                                console.error('[Flowlock] Continue writing failed after interrupt failure recovery:', error);
-                                                window.flowlockManager.isProcessing = false;
-                                                window.flowlockManager.retryCount++;
-                                                
-                                                if (window.flowlockManager.retryCount >= window.flowlockManager.maxRetries) {
-                                                    console.error('[Flowlock] Max retries reached, stopping flowlock');
-                                                    if (window.uiHelperFunctions && window.uiHelperFunctions.showToastNotification) {
-                                                        window.uiHelperFunctions.showToastNotification('心流锁续写失败次数过多，已自动停止', 'error');
-                                                    }
-                                                    window.flowlockManager.stop();
-                                                }
-                                            });
-                                        }
-                                    }
-                                }, 5000);
-                            }
-                        }
+                        // Flowlock 不在此处直接恢复。中止/错误后的重试由对应 Agent Session
+                        // 基于 messageId/context 的最终事件统一调度，避免读取其他 Agent 的输入框。
                     }
                 } else {
                     console.error("[ContextMenu] Interrupt handler not available. Manually cancelling.");
@@ -202,7 +146,7 @@ function showContextMenu(event, messageItem, message) {
                 const contentClone = contentDiv.cloneNode(true);
                 // 移除不应参与复制的渲染辅助节点，避免把附件删除按钮的 × 一起复制进去
                 contentClone.querySelectorAll(
-                    '.vcp-tool-use-bubble, .vcp-tool-result-bubble, .message-attachments, .message-attachment-remove-btn, style, script'
+                    '.vcp-tool-use-bubble, .vcp-tool-result-bubble, .vcp-tool-call-summary-bubble, .vcp-flowlock-bubble, .vcp-role-divider, .vcp-thought-chain-bubble, .message-attachments, .message-attachment-remove-btn, style, script'
                 ).forEach(el => el.remove());
                 // 修复：清理多余的空行，确保最多只有一个空行
                 textToCopy = contentClone.innerText.replace(/\n{3,}/g, '\n\n').trim();
@@ -679,6 +623,20 @@ function toggleEditMode(messageItem, message) {
     }
 }
 
+function attachTimestampMetaToVcpMessage(vcpMessage, historyMessage) {
+    if (!vcpMessage || !historyMessage || !historyMessage.id || typeof historyMessage.timestamp !== 'number') {
+        return vcpMessage;
+    }
+    return {
+        ...vcpMessage,
+        __vcpchatTimestampMeta: {
+            messageId: historyMessage.id,
+            role: historyMessage.role,
+            timestamp: historyMessage.timestamp
+        }
+    };
+}
+
 async function handleRegenerateResponse(originalAssistantMessage) {
     const { electronAPI, uiHelper } = mainRefs;
     const currentChatHistoryArray = mainRefs.currentChatHistoryRef.get();
@@ -779,16 +737,43 @@ async function handleRegenerateResponse(originalAssistantMessage) {
                 let historicalAppendedText = "";
                 for (const att of msg.attachments) {
                     const fileManagerData = att._fileManagerData || {};
-                    // 🟢 同步：重新生成时的多级路径探测。优先使用 internalPath (物理路径)
-                    const filePathForContext = (fileManagerData && fileManagerData.internalPath) || 
-                                               att.localPath || 
-                                               att.src || 
-                                               (att.name || '未知文件');
+                    // 兼容两种附件结构：正常发送的附件数据位于 _fileManagerData，
+                    // 后续添加到消息的附件数据则可能直接位于 att 顶层。
+                    const attachmentSourcePath = fileManagerData.internalPath ||
+                                                 att.internalPath ||
+                                                 att.localPath ||
+                                                 att.src;
+                    const filePathForContext = attachmentSourcePath || att.name || '未知文件';
+                    const effectiveType = fileManagerData.type || att.type || '';
+                    const effectiveImageFrames = fileManagerData.imageFrames || att.imageFrames;
+                    let effectiveExtractedText = fileManagerData.extractedText || att.extractedText;
 
-                    if (fileManagerData.imageFrames && fileManagerData.imageFrames.length > 0) {
+                    // 历史记录可能缓存了旧版固定按 UTF-8 解码后产生的乱码。
+                    // 重新回复时从原始附件重新提取，确保使用当前的编码检测逻辑。
+                    if (!effectiveImageFrames &&
+                        attachmentSourcePath &&
+                        electronAPI &&
+                        typeof electronAPI.getTextContent === 'function') {
+                        try {
+                            const refreshedContent = await electronAPI.getTextContent(
+                                attachmentSourcePath,
+                                effectiveType
+                            );
+                            if (refreshedContent && typeof refreshedContent.text === 'string') {
+                                effectiveExtractedText = refreshedContent.text;
+                            }
+                        } catch (extractionError) {
+                            console.warn(
+                                `[ContextMenu] Failed to refresh attachment text for ${att.name || attachmentSourcePath}; using cached text:`,
+                                extractionError
+                            );
+                        }
+                    }
+
+                    if (effectiveImageFrames && effectiveImageFrames.length > 0) {
                          historicalAppendedText += `\n\n[附加文件: ${filePathForContext} (扫描版PDF，已转换为图片)]`;
-                    } else if (fileManagerData.extractedText) {
-                        historicalAppendedText += `\n\n[附加文件: ${filePathForContext}]\n${fileManagerData.extractedText}\n[/附加文件结束: ${att.name || '未知文件'}]`;
+                    } else if (effectiveExtractedText) {
+                        historicalAppendedText += `\n\n[附加文件: ${filePathForContext}]\n${effectiveExtractedText}\n[/附加文件结束: ${att.name || '未知文件'}]`;
                     } else {
                         historicalAppendedText += `\n\n[附加文件: ${filePathForContext}]`;
                     }
@@ -811,17 +796,19 @@ async function handleRegenerateResponse(originalAssistantMessage) {
                 // --- IMAGE PROCESSING ---
                 const imageAttachmentsPromises = msg.attachments.map(async att => {
                     const fileManagerData = att._fileManagerData || {};
+                    // 兼容读取：优先从 _fileManagerData 读取，回退到 att 顶层字段
+                    const effectiveImageFrames = fileManagerData.imageFrames || att.imageFrames;
                     // Case 1: Scanned PDF converted to image frames
-                    if (fileManagerData.imageFrames && fileManagerData.imageFrames.length > 0) {
-                        return fileManagerData.imageFrames.map(frameData => ({
+                    if (effectiveImageFrames && effectiveImageFrames.length > 0) {
+                        return effectiveImageFrames.map(frameData => ({
                             type: 'image_url',
                             image_url: { url: `data:image/jpeg;base64,${frameData}` }
                         }));
                     }
                     // Case 2: Regular image file (including GIFs that get framed)
-                    if (att.type.startsWith('image/')) {
+                    if (att.type && att.type.startsWith('image/')) {
                         try {
-                            const result = await electronAPI.getFileAsBase64(att.src);
+                            const result = await electronAPI.getFileAsBase64(att.src || att.internalPath);
                             if (result && result.success) {
                                 return result.base64Frames.map(frameData => ({
                                     type: 'image_url',
@@ -849,10 +836,10 @@ async function handleRegenerateResponse(originalAssistantMessage) {
                 // --- AUDIO PROCESSING ---
                 const supportedAudioTypes = ['audio/wav', 'audio/mpeg', 'audio/mp3', 'audio/aiff', 'audio/aac', 'audio/ogg', 'audio/flac'];
                 const audioAttachmentsPromises = msg.attachments
-                    .filter(att => supportedAudioTypes.includes(att.type))
+                    .filter(att => att.type && supportedAudioTypes.includes(att.type))
                     .map(async att => {
                         try {
-                            const result = await electronAPI.getFileAsBase64(att.src);
+                            const result = await electronAPI.getFileAsBase64(att.src || att.internalPath);
                             if (result && result.success && result.base64Frames.length > 0) {
                                 return result.base64Frames.map(frameData => ({
                                     type: 'image_url',
@@ -875,10 +862,10 @@ async function handleRegenerateResponse(originalAssistantMessage) {
 
                 // --- VIDEO PROCESSING ---
                 const videoAttachmentsPromises = msg.attachments
-                    .filter(att => att.type.startsWith('video/'))
+                    .filter(att => att.type && att.type.startsWith('video/'))
                     .map(async att => {
                         try {
-                            const result = await electronAPI.getFileAsBase64(att.src);
+                            const result = await electronAPI.getFileAsBase64(att.src || att.internalPath);
                             if (result && result.success && result.base64Frames.length > 0) {
                                 return result.base64Frames.map(frameData => ({
                                     type: 'image_url',
@@ -912,7 +899,10 @@ async function handleRegenerateResponse(originalAssistantMessage) {
                  finalContentPartsForVCP.push({ type: 'text', text: '(用户发送了附件，但无文本或图片内容)' });
             }
             
-            return { role: msg.role, content: finalContentPartsForVCP.length > 0 ? finalContentPartsForVCP : msg.content };
+            return attachTimestampMetaToVcpMessage(
+                { role: msg.role, content: finalContentPartsForVCP.length > 0 ? finalContentPartsForVCP : msg.content },
+                msg
+            );
         }));
 
         if (agentConfig.systemPrompt) {

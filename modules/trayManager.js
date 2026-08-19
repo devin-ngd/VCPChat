@@ -23,6 +23,7 @@ const trayManager = (function () {
         { id: 'vchat-app-translator', name: '翻译', icon: 'translator', action: 'open-translator-window' },
         { id: 'vchat-app-music', name: '音乐', icon: 'music', action: 'open-music-window' },
         { id: 'vchat-app-canvas', name: '协同', icon: 'canvas', action: 'open-canvas-window' },
+        { id: 'vchat-app-scriptorium', name: '文坊', icon: 'scriptorium', action: 'open-scriptorium-window' },
         { id: 'vchat-app-main', name: 'VChat', icon: 'chat', action: 'show-main-window' },
         { id: 'vchat-app-memo', name: '记忆', icon: 'memo', action: 'open-memo-window' },
         { id: 'vchat-app-forum', name: '论坛', icon: 'forum', action: 'open-forum-window' },
@@ -30,9 +31,12 @@ const trayManager = (function () {
         { id: 'vchat-app-dice', name: '骰子', icon: 'dice', action: 'open-dice-window' },
         { id: 'vchat-app-rag-observer', name: '监听', icon: 'rag', action: 'open-rag-observer-window' },
         { id: 'vchat-app-themes', name: '主题', icon: 'themes', action: 'open-themes-window' },
+        { id: 'vchat-app-loom-manager', name: 'Loom', icon: 'loom', action: 'open-loom-manager' },
         { id: 'vchat-app-toolbox', name: '工具', icon: 'toolbox', action: 'launch-human-toolbox' },
         { id: 'vchat-app-dbmanager', name: '数据', icon: 'database', action: 'launch-vchat-manager' },
         { id: 'vchat-app-task', name: '任务', icon: 'task', action: 'open-task-window' },
+        { id: 'vchat-app-plugin-manager', name: '插件', icon: 'plugin', action: 'open-plugin-manager-window' },
+        { id: 'vchat-app-terminal', name: '终端', icon: 'terminal', action: 'open-powershell-executor-terminal' },
         { id: 'vchat-app-desktop', name: '桌面', icon: 'desktop', action: 'open-desktop-window' }
     ];
 
@@ -50,10 +54,14 @@ const trayManager = (function () {
         translator: `<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-languages"><path d="m5 8 6 6"/><path d="m4 14 6-6 2-3"/><path d="M2 5h12"/><path d="M7 2h1"/><path d="m22 22-5-10-5 10"/><path d="M14 18h6"/></svg>`,
         music: `<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-list-music"><path d="M16 5H3"/><path d="M11 12H3"/><path d="M11 19H3"/><path d="M21 16V5"/><circle cx="18" cy="16" r="3"/></svg>`,
         themes: `<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-palette"><circle cx="13.5" cy="6.5" r=".5"/><circle cx="17.5" cy="10.5" r=".5"/><circle cx="8.5" cy="7.5" r=".5"/><circle cx="6.5" cy="12.5" r=".5"/><path d="M12 2C6.5 2 2 6.5 2 12s4.5 10 10 10c.9 0 1.6-.7 1.6-1.6 0-.4-.2-.8-.5-1.1-.3-.3-.4-.7-.4-1.1 0-.9.7-1.6 1.6-1.6H17c2.8 0 5-2.2 5-5 0-3.9-4.5-7-10-7Z"/></svg>`,
+        loom: `<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-network"><circle cx="12" cy="12" r="3"/><circle cx="12" cy="12" r="8"/><path d="M12 1v8M12 15v8M1 12h8M15 12h8M4.2 4.2l5.7 5.7M14.1 14.1l5.7 5.7M19.8 4.2l-5.7 5.7M9.9 14.1l-5.7 5.7"/></svg>`,
         toolbox: `<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-wrench"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.106-3.105c.32-.322.863-.22.983.218a6 6 0 0 1-8.259 7.057l-7.91 7.91a1 1 0 0 1-2.999-3l7.91-7.91a6 6 0 0 1 7.057-8.259c.438.12.54.662.219.984z"/></svg>`,
         database: `<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-database"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M3 5V19A9 3 0 0 0 21 19V5"/><path d="M3 12A9 3 0 0 0 21 12"/></svg>`,
         task: `<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-clipboard-list"><rect width="8" height="4" x="8" y="2" rx="1" ry="1"/><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/><path d="M12 11h4"/><path d="M12 16h4"/><path d="M8 11h.01"/><path d="M8 16h.01"/></svg>`,
-        desktop: `<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-monitor"><rect width="20" height="14" x="2" y="3" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>`
+        desktop: `<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-monitor"><rect width="20" height="14" x="2" y="3" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>`,
+        terminal: `<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-terminal-square"><path d="m7 11 2-2-2-2"/><path d="M11 13h4"/><rect width="18" height="18" x="3" y="3" rx="2" ry="2"/></svg>`,
+        scriptorium: `<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 19.5V5a2 2 0 0 1 2-2h11.5A2.5 2.5 0 0 1 20 5.5V21H6a2 2 0 0 1-2-1.5Z"/><path d="M8 7h7M8 11h5"/><path d="M17.8 7.2c-2.1 1.2-3.6 3.3-4.2 6.3l2-1 1 2c1.8-2 2.7-4.4 2.7-7.2Z"/></svg>`,
+        plugin: `<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-puzzle"><path d="M15.39 4.39a1.5 1.5 0 1 0-2.78 1.12A2 2 0 0 1 10.76 8H5a1 1 0 0 0-1 1v5.76a2 2 0 0 0 2.49 1.85 1.5 1.5 0 1 1 1.12 2.78A2 2 0 0 0 9.24 22H15a1 1 0 0 0 1-1v-5.76a2 2 0 0 1 2.49-1.85 1.5 1.5 0 1 0 1.12-2.78A2 2 0 0 1 22 9.24V5a1 1 0 0 0-1-1h-4.24a2 2 0 0 1-1.37.39Z"/></svg>`
     };
 
     /**
@@ -105,7 +113,9 @@ const trayManager = (function () {
             if (!app || app.id === 'vchat-app-main') return;
 
             const btn = document.createElement('button');
-            btn.className = 'header-button capsule-button';
+            // 托盘按钮不属于页面 Header，避免被全局 .header-button 主题规则覆盖，
+            // 确保其普通态与 Hover 态始终和“更多”按钮使用同一套 Dock 配色。
+            btn.className = 'capsule-button';
             btn.title = app.name;
             btn.innerHTML = `
                 ${SVG_ICONS[app.icon] || ''}
@@ -131,7 +141,7 @@ const trayManager = (function () {
 
         drawerApps.forEach(app => {
             const item = document.createElement('button');
-            item.className = 'header-button capsule-button app-tray-drawer-item';
+            item.className = 'capsule-button app-tray-drawer-item';
             item.title = app.name;
             item.innerHTML = `
                 ${SVG_ICONS[app.icon] || ''}
@@ -155,7 +165,16 @@ const trayManager = (function () {
         // 动态获取最新的 API 引用
         const currentApi = window.chatAPI || window.electronAPI;
 
-        if (currentApi?.desktopLaunchVchatApp) {
+        if (app.action === 'open-loom-manager' && currentApi?.loomOpenManager) {
+            try {
+                const result = await currentApi.loomOpenManager();
+                if (!result?.success) {
+                    console.error('[TrayManager] Loom manager launch failed:', result?.error);
+                }
+            } catch (err) {
+                console.error('[TrayManager] Loom manager IPC error:', err);
+            }
+        } else if (currentApi?.desktopLaunchVchatApp) {
             try {
                 const result = await currentApi.desktopLaunchVchatApp(app.action);
                 if (!result?.success) {
